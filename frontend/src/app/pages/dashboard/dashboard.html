@@ -1,0 +1,42 @@
+<header>
+      <h1>Welcome back, {{ userName }} 👋</h1>
+      <div class="date">{{ currentDate }}</div>
+    </header>
+
+    <div class="stats-grid">
+      <div class="glass-card stat-card">
+        <h4>Total Balance</h4>
+        <div class="amount">€{{ totalBalance | number:'1.2-2' }}</div>
+        <div class="trend positive">+2.4% this month</div>
+      </div>
+      <div class="glass-card stat-card">
+        <h4>Monthly Spending</h4>
+        <div class="amount">€{{ monthlySpending | number:'1.2-2' }}</div>
+        <div class="trend negative">-5.1% this month</div>
+      </div>
+      <div class="glass-card stat-card">
+        <h4>Active Cards</h4>
+        <div class="amount">{{ activeCards }}</div>
+        <div class="trend neutral">All secure</div>
+      </div>
+    </div>
+
+    <section class="recent-transactions glass-card">
+      <h3>Recent Transactions</h3>
+      <div class="tx-list">
+        <div class="tx-item" *ngFor="let tx of transactions">
+          <div class="tx-info">
+            <div class="tx-icon" [class.receive]="tx.positive" [class.send]="!tx.positive">
+              {{ tx.positive ? '↓' : '↑' }}
+            </div>
+            <div>
+              <strong>{{ tx.label }}</strong>
+              <span>{{ tx.date }}</span>
+            </div>
+          </div>
+          <div class="tx-amount" [class.positive]="tx.positive" [class.negative]="!tx.positive">
+            {{ tx.amount }}
+          </div>
+        </div>
+      </div>
+    </section>

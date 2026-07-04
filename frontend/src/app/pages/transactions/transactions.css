@@ -1,0 +1,2 @@
+/* Reuse dashboard layout styles */
+:host { display: contents; }

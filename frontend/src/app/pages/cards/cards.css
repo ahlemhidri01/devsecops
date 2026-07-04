@@ -1,0 +1,63 @@
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+}
+
+.card-item {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.card-visual {
+  padding: 1.5rem;
+  border-radius: 12px 12px 0 0;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 140px;
+  justify-content: space-between;
+}
+
+.card-chip {
+  font-size: 0.85rem;
+  letter-spacing: 2px;
+  opacity: 0.7;
+}
+
+.card-number {
+  font-size: 1.1rem;
+  letter-spacing: 3px;
+  font-family: monospace;
+}
+
+.card-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+.card-stats {
+  display: flex;
+  justify-content: space-around;
+  padding: 1rem 1.5rem;
+}
+
+.card-stats div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.card-stats label {
+  font-size: 0.75rem;
+  opacity: 0.6;
+}
+
+.card-stats strong {
+  font-size: 1rem;
+}

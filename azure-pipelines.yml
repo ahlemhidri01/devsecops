@@ -1,0 +1,136 @@
+# ==============================================================
+# SecureBank — Azure DevOps CI/CD Pipeline
+# Implements a strict DevSecOps pipeline with 11 security gates
+# ==============================================================
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    exclude:
+      - 'README.md'
+      - 'docs/**'
+
+variables:
+  - group: securebank-prod-variables
+  - name: imageRepository
+    value: 'securebank/api'
+  - name: dockerRegistryServiceConnection
+    value: 'AcrConnection'
+  - name: tag
+    value: '$(Build.BuildId)'
+
+stages:
+  # ─────────────────────────────────────────────────────────
+  # STAGE 1: SECURITY SCANNING (Shift-Left)
+  # ─────────────────────────────────────────────────────────
+  - stage: Security_Scan
+    displayName: 'Code Security & Quality'
+    jobs:
+      - job: SecretScan
+        displayName: 'Gitleaks - Hardcoded Secrets Check'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - checkout: self
+            fetchDepth: 0
+          - script: |
+              wget https://github.com/zricethezav/gitleaks/releases/download/v8.18.0/gitleaks_8.18.0_linux_x64.tar.gz
+              tar -xzf gitleaks_8.18.0_linux_x64.tar.gz
+              ./gitleaks detect --source . -v -c gitleaks.toml
+            displayName: 'Run Gitleaks'
+
+      - job: SAST
+        displayName: 'SonarQube SAST'
+        dependsOn: SecretScan
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: SonarQubePrepare@5
+            inputs:
+              SonarQube: 'SonarQubeServer'
+              scannerMode: 'CLI'
+              configMode: 'manual'
+              cliProjectKey: 'SecureBank_API'
+              cliProjectName: 'SecureBank API'
+              cliSources: 'src'
+          - task: Npm@1
+            inputs:
+              command: 'install'
+          - task: Npm@1
+            inputs:
+              command: 'custom'
+              customCommand: 'run test -- --coverage'
+          - task: SonarQubeAnalyze@5
+          - task: SonarQubePublish@5
+            inputs:
+              pollingTimeoutSec: '300'
+
+  # ─────────────────────────────────────────────────────────
+  # STAGE 2: BUILD & ARTIFACT SCANNING
+  # ─────────────────────────────────────────────────────────
+  - stage: Build
+    displayName: 'Build and Scan Image'
+    dependsOn: Security_Scan
+    condition: succeeded()
+    jobs:
+      - job: BuildAndPush
+        displayName: 'Build Docker Image'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: Docker@2
+            inputs:
+              command: 'build'
+              repository: '$(imageRepository)'
+              dockerfile: 'Dockerfile'
+              tags: |
+                $(tag)
+                latest
+              
+          - script: |
+              sudo apt-get install wget apt-transport-https gnupg lsb-release
+              wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+              echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
+              sudo apt-get update
+              sudo apt-get install trivy
+            displayName: 'Install Trivy'
+
+          - script: |
+              trivy image --exit-code 1 --severity CRITICAL,HIGH --ignorefile .trivyignore $(imageRepository):$(tag)
+            displayName: 'Trivy Image Vulnerability Scan'
+
+          - task: Docker@2
+            inputs:
+              command: 'push'
+              repository: '$(imageRepository)'
+              dockerRegistryServiceConnection: '$(dockerRegistryServiceConnection)'
+              tags: |
+                $(tag)
+                latest
+
+  # ─────────────────────────────────────────────────────────
+  # STAGE 3: MANIFEST UPDATE (GitOps Trigger)
+  # ─────────────────────────────────────────────────────────
+  - stage: GitOps_Update
+    displayName: 'Update Kubernetes Manifests'
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: UpdateManifests
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - checkout: self
+            persistCredentials: true
+          - script: |
+              cd kubernetes/overlays/production
+              kustomize edit set image $(imageRepository)=$(imageRepository):$(tag)
+              git config --global user.email "azuredevops@securebank.com"
+              git config --global user.name "Azure DevOps CI"
+              git add kustomization.yaml
+              git commit -m "chore(gitops): update image tag to $(tag) [skip ci]"
+              git push origin main
+            displayName: 'Update Kustomize Overlay and Push to Repo'

@@ -1,0 +1,71 @@
+services:
+  # --- PostgreSQL 16 ---
+  postgres:
+    image: postgres:16-alpine
+    container_name: securebank-postgres
+    environment:
+      POSTGRES_DB: securebank
+      POSTGRES_USER: securebank
+      POSTGRES_PASSWORD: securebank_dev_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securebank"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # --- Redis 7 ---
+  redis:
+    image: redis:7-alpine
+    container_name: securebank-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # --- .NET 9 Backend API ---
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: securebank-api-dotnet
+    ports:
+      - "5000:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=securebank;Username=securebank;Password=securebank_dev_password
+      - Jwt__Key=SecureBank_Dev_SecretKey_1234567890ABC_MustBe32Chars
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # --- Angular Frontend (dev server via nginx) ---
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: securebank-frontend-angular
+    ports:
+      - "4200:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local

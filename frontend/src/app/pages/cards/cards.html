@@ -1,0 +1,21 @@
+<header>
+      <h1>My Cards 💳</h1>
+      <div class="date">{{ currentDate }}</div>
+    </header>
+
+    <div class="cards-grid">
+      <div class="glass-card card-item" *ngFor="let card of cards">
+        <div class="card-visual" [style.background]="card.color">
+          <div class="card-chip">▪▪▪▪</div>
+          <div class="card-number">{{ card.number }}</div>
+          <div class="card-meta">
+            <span>{{ card.name }}</span>
+            <span>Exp: {{ card.expiry }}</span>
+          </div>
+        </div>
+        <div class="card-stats">
+          <div><label>Limit</label><strong>{{ card.limit }}</strong></div>
+          <div><label>Used</label><strong>{{ card.used }}</strong></div>
+        </div>
+      </div>
+    </div>

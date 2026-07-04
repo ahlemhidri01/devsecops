@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Keys (NEVER commit)
+keys/
+*.pem
+*.key
+*.pub
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Coverage
+coverage/
+
+# Prisma
+prisma/*.db
+
+# Docker
+.docker/
+
+# Temporary
+tmp/
+temp/

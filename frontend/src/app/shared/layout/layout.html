@@ -1,0 +1,23 @@
+<div class="dashboard-container">
+  <!-- Sidebar -->
+  <aside class="sidebar glass-card">
+    <div class="logo-container">
+      <div class="logo-icon small"></div>
+      <h3>SecureBank</h3>
+    </div>
+    <nav>
+      <a routerLink="/dashboard" routerLinkActive="active" [routerLinkActiveOptions]="{exact: true}">Overview</a>
+      <a routerLink="/transactions" routerLinkActive="active">Transactions</a>
+      <a routerLink="/cards" routerLinkActive="active">Cards</a>
+      <a routerLink="/beneficiaries" routerLinkActive="active">Beneficiaries</a>
+    </nav>
+    <div class="logout-btn" (click)="logout()">
+      Log out
+    </div>
+  </aside>
+
+  <!-- Main Content Area where child routes are rendered -->
+  <main class="main-content">
+    <router-outlet></router-outlet>
+  </main>
+</div>

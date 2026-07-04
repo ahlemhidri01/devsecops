@@ -1,0 +1,532 @@
+// ==============================================================
+// SecureBank Platform — Prisma Schema
+// Covers all 7 functional modules
+// ==============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ──────────────────────────────────────
+// ENUMS
+// ──────────────────────────────────────
+
+enum UserRole {
+  CLIENT
+  ADVISOR
+  ADMIN
+  AUDITOR
+}
+
+enum UserStatus {
+  PENDING_KYC
+  ACTIVE
+  LOCKED
+  SUSPENDED
+  CLOSED
+}
+
+enum KycDocumentType {
+  CNI
+  PASSPORT
+  PROOF_OF_ADDRESS
+}
+
+enum KycStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+enum AccountType {
+  COURANT
+  EPARGNE
+  PROFESSIONNEL
+}
+
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+  CLOSED
+}
+
+enum TransactionType {
+  INTERNAL_TRANSFER
+  SEPA_TRANSFER
+  SEPA_INSTANT
+  SWIFT_TRANSFER
+  CARD_PAYMENT
+  DIRECT_DEBIT
+  SCHEDULED_TRANSFER
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  BLOCKED_FRAUD
+}
+
+enum CardType {
+  VIRTUAL
+  PHYSICAL
+  PREPAID
+}
+
+enum CardStatus {
+  ACTIVE
+  BLOCKED
+  EXPIRED
+  CANCELLED
+}
+
+enum NotificationType {
+  TRANSACTION
+  SECURITY
+  ACCOUNT
+  BENEFICIARY
+  CARD
+  COMPLIANCE
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  PUSH
+  IN_APP
+}
+
+enum AuditAction {
+  // Auth actions
+  LOGIN_SUCCESS
+  LOGIN_FAILURE
+  LOGOUT
+  LOGOUT_ALL
+  MFA_ENABLED
+  MFA_VERIFIED
+  MFA_FAILED
+  PASSWORD_RESET_REQUESTED
+  PASSWORD_RESET_COMPLETED
+  ACCOUNT_LOCKED
+  ACCOUNT_UNLOCKED
+  // Account actions
+  ACCOUNT_CREATED
+  ACCOUNT_VIEWED
+  ACCOUNT_CLOSED
+  STATEMENT_GENERATED
+  // Transaction actions
+  TRANSACTION_INITIATED
+  TRANSACTION_COMPLETED
+  TRANSACTION_FAILED
+  TRANSACTION_BLOCKED_FRAUD
+  // Beneficiary actions
+  BENEFICIARY_ADDED
+  BENEFICIARY_MODIFIED
+  BENEFICIARY_DELETED
+  // Card actions
+  CARD_CREATED
+  CARD_BLOCKED
+  CARD_RENEWED
+  CARD_SETTINGS_CHANGED
+  // Compliance actions
+  GDPR_EXPORT_REQUESTED
+  GDPR_ERASURE_REQUESTED
+  AML_ALERT_GENERATED
+  KYC_DOCUMENT_UPLOADED
+  KYC_VERIFIED
+}
+
+enum TransferScheduleFrequency {
+  WEEKLY
+  MONTHLY
+  ANNUAL
+}
+
+// ──────────────────────────────────────
+// MODULE 1: AUTHENTICATION & IDENTITY
+// ──────────────────────────────────────
+
+model User {
+  id                  String         @id @default(uuid())
+  email               String         @unique
+  passwordHash        String
+  firstName           String
+  lastName            String
+  phone               String?
+  role                UserRole       @default(CLIENT)
+  status              UserStatus     @default(PENDING_KYC)
+  failedLoginAttempts Int            @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  // Relations
+  mfaSecret           MfaSecret?
+  kycDocuments        KycDocument[]
+  loginHistory        LoginHistory[]
+  accounts            Account[]
+  beneficiaries       Beneficiary[]
+  cards               Card[]
+  notifications       Notification[]
+  notificationPrefs   NotificationPreference[]
+  auditLogs           AuditLog[]     @relation("AuditUser")
+
+  @@index([email])
+  @@index([status])
+  @@map("users")
+}
+
+model MfaSecret {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  secret    String   // Encrypted TOTP secret
+  enabled   Boolean  @default(false)
+  backupCodes String[] // Encrypted backup codes
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("mfa_secrets")
+}
+
+model KycDocument {
+  id         String          @id @default(uuid())
+  userId     String
+  type       KycDocumentType
+  status     KycStatus       @default(PENDING)
+  filePath   String          // Encrypted storage path
+  verifiedAt DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  // Relations
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("kyc_documents")
+}
+
+model LoginHistory {
+  id        String   @id @default(uuid())
+  userId    String
+  ipAddress String
+  userAgent String
+  device    String?
+  success   Boolean
+  mfaUsed   Boolean  @default(false)
+  reason    String?  // Failure reason
+  createdAt DateTime @default(now())
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("login_history")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  deviceInfo String?
+  ipAddress  String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ──────────────────────────────────────
+// MODULE 2: BANK ACCOUNTS
+// ──────────────────────────────────────
+
+model Account {
+  id                String        @id @default(uuid())
+  userId            String
+  iban              String        @unique // Encrypted
+  bic               String        @default("SBKFFRPP")
+  type              AccountType
+  status            AccountStatus @default(ACTIVE)
+  balance           Decimal       @default(0) @db.Decimal(15, 2) // Encrypted at rest
+  currency          String        @default("EUR")
+  label             String?
+  dailyLimit        Decimal       @default(10000) @db.Decimal(15, 2)
+  monthlyLimit      Decimal       @default(50000) @db.Decimal(15, 2)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  closedAt          DateTime?
+
+  // Relations
+  user              User          @relation(fields: [userId], references: [id])
+  sentTransactions  Transaction[] @relation("SenderAccount")
+  receivedTransactions Transaction[] @relation("ReceiverAccount")
+  statements        AccountStatement[]
+
+  @@index([userId])
+  @@index([iban])
+  @@index([status])
+  @@map("accounts")
+}
+
+model AccountStatement {
+  id          String   @id @default(uuid())
+  accountId   String
+  periodStart DateTime
+  periodEnd   DateTime
+  format      String   @default("PDF") // PDF or JSON
+  filePath    String?  // Signed PDF path
+  signature   String?  // Digital signature
+  createdAt   DateTime @default(now())
+
+  // Relations
+  account     Account  @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+  @@map("account_statements")
+}
+
+// ──────────────────────────────────────
+// MODULE 3: TRANSACTIONS & TRANSFERS
+// ──────────────────────────────────────
+
+model Transaction {
+  id                  String            @id @default(uuid())
+  idempotencyKey      String            @unique // Client-side UUID
+  senderAccountId     String?
+  receiverAccountId   String?
+  externalIban        String?           // For SEPA/SWIFT
+  externalBic         String?
+  type                TransactionType
+  status              TransactionStatus @default(PENDING)
+  amount              Decimal           @db.Decimal(15, 2)
+  currency            String            @default("EUR")
+  description         String?
+  reference           String?
+  signature           String?           // Cryptographic signature (non-repudiation)
+  fraudScore          Decimal?          @db.Decimal(5, 4) // 0.0000 to 1.0000
+  mfaVerified         Boolean           @default(false)
+  executionDate       DateTime?
+  completedAt         DateTime?
+  failureReason       String?
+  metadata            Json?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  // Relations
+  senderAccount       Account?          @relation("SenderAccount", fields: [senderAccountId], references: [id])
+  receiverAccount     Account?          @relation("ReceiverAccount", fields: [receiverAccountId], references: [id])
+  auditEntries        TransactionAudit[]
+
+  @@index([senderAccountId])
+  @@index([receiverAccountId])
+  @@index([idempotencyKey])
+  @@index([status])
+  @@index([createdAt])
+  @@index([type])
+  @@map("transactions")
+}
+
+/// Append-only audit trail for transactions — NO UPDATE OR DELETE allowed
+model TransactionAudit {
+  id            String   @id @default(uuid())
+  transactionId String
+  action        String
+  previousState Json?
+  newState      Json
+  performedBy   String   // User ID or system
+  ipAddress     String?
+  timestamp     DateTime @default(now())
+
+  // Relations
+  transaction   Transaction @relation(fields: [transactionId], references: [id])
+
+  @@index([transactionId])
+  @@index([timestamp])
+  @@map("transaction_audit")
+}
+
+model ScheduledTransfer {
+  id                String                    @id @default(uuid())
+  userId            String
+  senderAccountId   String
+  receiverAccountId String?
+  externalIban      String?
+  externalBic       String?
+  amount            Decimal                   @db.Decimal(15, 2)
+  currency          String                    @default("EUR")
+  description       String?
+  frequency         TransferScheduleFrequency
+  nextExecutionDate DateTime
+  lastExecutedAt    DateTime?
+  isActive          Boolean                   @default(true)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  @@index([userId])
+  @@index([nextExecutionDate])
+  @@index([isActive])
+  @@map("scheduled_transfers")
+}
+
+// ──────────────────────────────────────
+// MODULE 4: BENEFICIARIES
+// ──────────────────────────────────────
+
+model Beneficiary {
+  id              String    @id @default(uuid())
+  userId          String
+  name            String
+  iban            String
+  bic             String?
+  bankName        String?
+  isActive        Boolean   @default(true)
+  quarantineUntil DateTime? // 72h cooling period
+  addedFromIp     String?
+  addedFromDevice String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  user            User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([iban])
+  @@index([quarantineUntil])
+  @@map("beneficiaries")
+}
+
+// ──────────────────────────────────────
+// MODULE 5: BANK CARDS
+// ──────────────────────────────────────
+
+model Card {
+  id                  String     @id @default(uuid())
+  userId              String
+  accountId           String?
+  type                CardType
+  status              CardStatus @default(ACTIVE)
+  tokenizedPan        String     @unique // PCI-DSS tokenized PAN
+  last4Digits         String     // Last 4 for display
+  expiryMonth         Int
+  expiryYear          Int
+  pinHash             String?    // bcrypt hashed PIN
+  dailyLimit          Decimal    @default(3000) @db.Decimal(15, 2)
+  monthlyLimit        Decimal    @default(10000) @db.Decimal(15, 2)
+  contactlessEnabled  Boolean    @default(true)
+  onlinePaymentEnabled Boolean   @default(true)
+  internationalEnabled Boolean   @default(false)
+  isSingleUse         Boolean    @default(false) // For virtual cards
+  blockedAt           DateTime?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  // Relations
+  user                User       @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([tokenizedPan])
+  @@index([status])
+  @@map("cards")
+}
+
+// ──────────────────────────────────────
+// MODULE 6: NOTIFICATIONS & ALERTS
+// ──────────────────────────────────────
+
+model Notification {
+  id        String             @id @default(uuid())
+  userId    String
+  type      NotificationType
+  channel   NotificationChannel
+  title     String
+  body      String
+  reference String?            // Transaction/event reference (no sensitive data)
+  isRead    Boolean            @default(false)
+  sentAt    DateTime?
+  createdAt DateTime           @default(now())
+
+  // Relations
+  user      User               @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([isRead])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id        String             @id @default(uuid())
+  userId    String
+  eventType NotificationType
+  channel   NotificationChannel
+  enabled   Boolean            @default(true)
+  threshold Decimal?           @db.Decimal(15, 2) // E.g., alert if balance < X
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  // Relations
+  user      User               @relation(fields: [userId], references: [id])
+
+  @@unique([userId, eventType, channel])
+  @@map("notification_preferences")
+}
+
+// ──────────────────────────────────────
+// MODULE 7: COMPLIANCE & AUDIT
+// ──────────────────────────────────────
+
+/// Immutable audit log — append-only, read-only for AUDITOR role
+model AuditLog {
+  id          String      @id @default(uuid())
+  userId      String?
+  action      AuditAction
+  entity      String      // Table/resource affected
+  entityId    String?     // ID of affected resource
+  details     Json?       // Masked details (no PII in clear)
+  ipAddress   String?
+  userAgent   String?
+  timestamp   DateTime    @default(now())
+
+  // Relations
+  user        User?       @relation("AuditUser", fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([timestamp])
+  @@index([entity])
+  @@map("audit_logs")
+}
+
+model ComplianceReport {
+  id          String   @id @default(uuid())
+  type        String   // AML, KYC, GDPR, REGULATORY
+  period      String   // "2025-Q1", "2025-01"
+  status      String   @default("GENERATED") // GENERATED, REVIEWED, SUBMITTED
+  filePath    String?
+  generatedBy String   // System or user ID
+  reviewedBy  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([type])
+  @@index([period])
+  @@map("compliance_reports")
+}

@@ -1,0 +1,24 @@
+<header>
+      <h1>Transactions 📋</h1>
+      <div class="date">{{ currentDate }}</div>
+    </header>
+
+    <section class="recent-transactions glass-card">
+      <h3>Transaction History</h3>
+      <div class="tx-list">
+        <div class="tx-item" *ngFor="let tx of transactions">
+          <div class="tx-info">
+            <div class="tx-icon" [class.receive]="tx.positive" [class.send]="!tx.positive">
+              {{ tx.positive ? '↓' : '↑' }}
+            </div>
+            <div>
+              <strong>{{ tx.label }}</strong>
+              <span>{{ tx.date }}</span>
+            </div>
+          </div>
+          <div class="tx-amount" [class.positive]="tx.positive" [class.negative]="!tx.positive">
+            {{ tx.amount }}
+          </div>
+        </div>
+      </div>
+    </section>

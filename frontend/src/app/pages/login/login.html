@@ -1,0 +1,44 @@
+<div class="login-container">
+  <div class="glass-card login-card">
+    <div class="logo-container">
+      <div class="logo-icon"></div>
+      <h2>SecureBank</h2>
+    </div>
+    
+    <p class="subtitle">Welcome back. Please enter your credentials.</p>
+
+    <!-- Demo Mode Banner -->
+    <div class="demo-banner">
+      <span class="demo-badge">DEMO</span>
+      <span>Use <strong>admin@securebank.com</strong> / <strong>demo123</strong></span>
+      <button type="button" class="demo-autofill" (click)="email='admin@securebank.com'; password='demo123'">
+        Auto-fill
+      </button>
+    </div>
+
+    <form (ngSubmit)="onSubmit()">
+      <div class="input-group">
+        <label for="email">Email Address</label>
+        <input type="email" id="email" [(ngModel)]="email" name="email" required placeholder="admin@securebank.com">
+      </div>
+      
+      <div class="input-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" [(ngModel)]="password" name="password" required placeholder="••••••••">
+      </div>
+
+      <div class="form-actions">
+        <button type="button" class="forgot-link" (click)="null">Forgot password?</button>
+      </div>
+
+      <button type="submit" class="btn-primary" [disabled]="isLoading">
+        {{ isLoading ? 'Authenticating...' : 'Sign In' }}
+      </button>
+
+      <div class="error-msg" *ngIf="errorMessage">
+        {{ errorMessage }}
+      </div>
+    </form>
+  </div>
+</div>
+
