@@ -41,3 +41,7 @@ prisma/*.db
 # Temporary
 tmp/
 temp/
+
+# .NET Backend
+backend/bin/
+backend/obj/
