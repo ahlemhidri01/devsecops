@@ -8,5 +8,5 @@ resources:
 namePrefix: prod-
 images:
   - name: securebank/api
-    newName: myregistry.azurecr.io/securebank/api
+    newName: devsecopss-api
     newTag: latest # This will be automatically patched by the CI pipeline

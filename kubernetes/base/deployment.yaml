@@ -27,7 +27,7 @@ spec:
       containers:
         - name: securebank-api
           image: securebank/api:latest # Handled by Kustomize overlay
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
               name: http
