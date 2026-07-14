@@ -1,0 +1,359 @@
+name: DevSecOps CI Pipeline
+
+on:
+  push:
+    branches: [main, ahlem]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_API: ghcr.io/${{ github.repository_owner }}/securebank-api
+  IMAGE_WEB: ghcr.io/${{ github.repository_owner }}/securebank-web
+
+jobs:
+  # ============================================================
+  # STAGE 1-2: Checkout & Secret Scanning
+  # ============================================================
+  secret-scan:
+    name: "1-2. Secret Scanning (Gitleaks)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================
+  # STAGE 3: Build & Tests (Backend .NET + Frontend Angular)
+  # ============================================================
+  build-and-test:
+    name: "3. Build & Tests"
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Restore backend dependencies
+        working-directory: backend
+        run: dotnet restore SecureBank.Api.csproj
+
+      - name: Build backend
+        working-directory: backend
+        run: dotnet build SecureBank.Api.csproj -c Release --no-restore
+
+      # NOTE: pas de tests unitaires .NET pour l'instant (dotnet test) —
+      # à ajouter dès que des tests xUnit/NUnit existent dans le projet.
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build -- --configuration=production
+
+  # ============================================================
+  # STAGE 4: Code Quality (SonarCloud) — Bloquant (Quality Gate)
+  # ============================================================
+  code-quality:
+    name: "4. Code Quality (SonarCloud)"
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Setup JDK 17 (requis par le scanner Sonar)
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: "zulu"
+
+      - name: Cache SonarCloud packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: Cache SonarCloud scanner
+        id: cache-sonar-scanner
+        uses: actions/cache@v4
+        with:
+          path: ./.sonar/scanner
+          key: ${{ runner.os }}-sonar-scanner
+          restore-keys: ${{ runner.os }}-sonar-scanner
+
+      - name: Install SonarCloud scanner
+        if: steps.cache-sonar-scanner.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ./.sonar/scanner
+          dotnet tool update dotnet-sonarscanner --tool-path ./.sonar/scanner
+
+      - name: Build and analyze (backend)
+        working-directory: backend
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ../.sonar/scanner/dotnet-sonarscanner begin \
+            /k:"ahlemhidri01_devsecops" \
+            /o:"ahlemhidri01" \
+            /d:sonar.token="${SONAR_TOKEN}" \
+            /d:sonar.qualitygate.wait=true
+          dotnet build SecureBank.Api.csproj -c Release
+          ../.sonar/scanner/dotnet-sonarscanner end /d:sonar.token="${SONAR_TOKEN}"
+
+  # ============================================================
+  # STAGE 5: Dockerfile Lint (Hadolint) — Warning only
+  # ============================================================
+  dockerfile-lint:
+    name: "5. Dockerfile Lint (Hadolint)"
+    needs: code-quality
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Warning uniquement, ne bloque pas le pipeline
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Hadolint - backend
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: backend/Dockerfile
+
+      - name: Hadolint - frontend
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: frontend/Dockerfile
+
+  # ============================================================
+  # STAGE 6: Filesystem Scan (Trivy) — Bloquant sur CRITICAL/HIGH
+  # ============================================================
+  filesystem-scan:
+    name: "6. Filesystem Scan (Trivy)"
+    needs: code-quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          severity: "CRITICAL,HIGH"
+          exit-code: "1"
+          format: "table"
+
+  # ============================================================
+  # STAGE 7: Docker Build (backend + frontend)
+  # ============================================================
+  docker-build:
+    name: "7. Docker Build"
+    needs: [dockerfile-lint, filesystem-scan]
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.vars.outputs.sha_short }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image (local, for scanning)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_API }}:${{ steps.vars.outputs.sha_short }}
+
+      - name: Build frontend image (local, for scanning)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_WEB }}:${{ steps.vars.outputs.sha_short }}
+
+      - name: Save images as artifacts
+        run: |
+          docker save ${{ env.IMAGE_API }}:${{ steps.vars.outputs.sha_short }} -o api-image.tar
+          docker save ${{ env.IMAGE_WEB }}:${{ steps.vars.outputs.sha_short }} -o web-image.tar
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docker-images
+          path: |
+            api-image.tar
+            web-image.tar
+          retention-days: 1
+
+  # ============================================================
+  # STAGE 8: Image Scan (Trivy) — Bloquant sur CRITICAL
+  # ============================================================
+  image-scan:
+    name: "8. Image Scan (Trivy)"
+    needs: docker-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: docker-images
+
+      - name: Load images
+        run: |
+          docker load -i api-image.tar
+          docker load -i web-image.tar
+
+      - name: Trivy scan - backend image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_API }}:${{ needs.docker-build.outputs.image-tag }}
+          severity: "CRITICAL"
+          exit-code: "1"
+          format: "table"
+
+      - name: Trivy scan - frontend image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_WEB }}:${{ needs.docker-build.outputs.image-tag }}
+          severity: "CRITICAL"
+          exit-code: "1"
+          format: "table"
+
+  # ============================================================
+  # STAGE 9: K8s Manifest Lint (kube-linter)
+  # ============================================================
+  k8s-lint:
+    name: "9. K8s Manifest Lint (kube-linter)"
+    needs: code-quality
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Warning pour l'instant, à rendre bloquant plus tard
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install kube-linter
+        run: |
+          curl -sSfL https://github.com/stackrox/kube-linter/releases/download/v0.6.7/kube-linter-linux.tar.gz -o kube-linter.tar.gz
+          tar -xzf kube-linter.tar.gz
+          sudo mv kube-linter /usr/local/bin
+
+      - name: Install kustomize
+        run: |
+          curl -sSfL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin
+
+      - name: Build manifests and lint
+        run: |
+          kustomize build kubernetes/overlays/production > /tmp/manifests.yaml
+          kube-linter lint /tmp/manifests.yaml
+
+  # ============================================================
+  # STAGE 10: Push Image (uniquement sur main)
+  # ============================================================
+  push-image:
+    name: "10. Push Image to GHCR"
+    needs: [image-scan, k8s-lint]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ needs.docker-build.result == 'success' && github.sha || '' }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: docker-images
+
+      - name: Load images
+        run: |
+          docker load -i api-image.tar
+          docker load -i web-image.tar
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and push images
+        run: |
+          docker tag ${{ env.IMAGE_API }}:${{ steps.vars.outputs.sha_short }} ${{ env.IMAGE_API }}:latest
+          docker tag ${{ env.IMAGE_WEB }}:${{ steps.vars.outputs.sha_short }} ${{ env.IMAGE_WEB }}:latest
+          docker push ${{ env.IMAGE_API }}:${{ steps.vars.outputs.sha_short }}
+          docker push ${{ env.IMAGE_API }}:latest
+          docker push ${{ env.IMAGE_WEB }}:${{ steps.vars.outputs.sha_short }}
+          docker push ${{ env.IMAGE_WEB }}:latest
+
+  # ============================================================
+  # STAGE 11: Update GitOps (met à jour le tag d'image pour Argo CD)
+  # ============================================================
+  update-gitops:
+    name: "11. Update GitOps"
+    needs: push-image
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Update image tag in kustomization
+        run: |
+          sed -i "s|newTag: .*|newTag: ${{ steps.vars.outputs.sha_short }}|" kubernetes/overlays/production/kustomization.yaml
+          sed -i "s|newName: .*|newName: ${{ env.IMAGE_API }}|" kubernetes/overlays/production/kustomization.yaml
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add kubernetes/overlays/production/kustomization.yaml
+          git diff --staged --quiet || git commit -m "ci: update image tag to ${{ steps.vars.outputs.sha_short }} [skip ci]"
+          git push origin main
