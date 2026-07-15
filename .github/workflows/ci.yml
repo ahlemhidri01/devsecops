@@ -249,6 +249,7 @@ jobs:
           severity: "CRITICAL"
           exit-code: "1"
           format: "table"
+          ignore-unfixed: true  # Ignore les CVE de l'OS de base sans correctif disponible
 
       - name: Trivy scan - frontend image
         uses: aquasecurity/trivy-action@master
@@ -257,6 +258,7 @@ jobs:
           severity: "CRITICAL"
           exit-code: "1"
           format: "table"
+          ignore-unfixed: true  # Ignore les CVE de l'OS de base sans correctif disponible
 
   # ============================================================
   # STAGE 9: K8s Manifest Lint (kube-linter)
