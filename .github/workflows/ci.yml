@@ -353,7 +353,7 @@ jobs:
 
       - name: Update image tag in kustomization
         run: |
-          sed -i "s|newTag: .*|newTag: ${{ steps.vars.outputs.sha_short }}|" kubernetes/overlays/production/kustomization.yaml
+          sed -i "s|newTag: .*|newTag: \"${{ steps.vars.outputs.sha_short }}\"|" kubernetes/overlays/production/kustomization.yaml
           sed -i "s|newName: .*|newName: ${{ env.IMAGE_API }}|" kubernetes/overlays/production/kustomization.yaml
 
       - name: Commit and push
