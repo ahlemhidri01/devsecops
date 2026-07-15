@@ -24,6 +24,15 @@ spec:
         runAsNonRoot: true
         runAsUser: 1001
         fsGroup: 1001
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: securebank-api
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: securebank-api
           image: securebank/api:latest # Handled by Kustomize overlay
