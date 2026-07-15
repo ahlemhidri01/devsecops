@@ -8,5 +8,5 @@ resources:
 namePrefix: prod-
 images:
   - name: securebank/api
-    newName: devsecopss-api
-    newTag: latest # This will be automatically patched by the CI pipeline
+    newName: ghcr.io/ahlemhidri01/securebank-api
+    newTag: 8785820
