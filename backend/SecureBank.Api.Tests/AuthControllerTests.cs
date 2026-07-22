@@ -26,7 +26,7 @@ namespace SecureBank.Api.Tests
             public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
         }
 
-        private static IWebHostEnvironment CreateTestEnvironment(string environmentName = "Development")
+        private static FakeWebHostEnvironment CreateTestEnvironment(string environmentName = "Development")
             => new FakeWebHostEnvironment { EnvironmentName = environmentName };
 
         private static AppDbContext CreateInMemoryContext()
