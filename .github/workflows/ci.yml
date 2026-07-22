@@ -136,7 +136,7 @@ jobs:
           dotnet test SecureBank.sln \
             /p:CollectCoverage=true \
             /p:CoverletOutputFormat=opencover \
-            /p:CoverletOutput=coverage/
+            /p:CoverletOutput=../coverage/
           ../.sonar/scanner/dotnet-sonarscanner end /d:sonar.token="${SONAR_TOKEN}"
 
   # ============================================================
