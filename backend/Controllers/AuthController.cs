@@ -15,11 +15,13 @@ namespace SecureBank.Api.Controllers
     {
         private readonly AppDbContext _context;
         private readonly IConfiguration _configuration;
+        private readonly IWebHostEnvironment _environment;
 
-        public AuthController(AppDbContext context, IConfiguration configuration)
+        public AuthController(AppDbContext context, IConfiguration configuration, IWebHostEnvironment environment)
         {
             _context = context;
             _configuration = configuration;
+            _environment = environment;
         }
 
         public class LoginRequest
@@ -47,7 +49,7 @@ namespace SecureBank.Api.Controllers
             var user = new User
             {
                 Email = req.Email,
-                PasswordHash = req.Password, // In production: BCrypt
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.Password),
                 FirstName = req.FirstName,
                 LastName = req.LastName,
                 Phone = req.Phone,
@@ -81,10 +83,13 @@ namespace SecureBank.Api.Controllers
         {
             var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
 
-            if (user == null || user.PasswordHash != request.Password)
+            if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
             {
-                // Seed demo admin if DB is fresh
-                if (request.Email == "admin@securebank.com" && request.Password == "demo123")
+                // Compte de démo : uniquement disponible en environnement de développement.
+                // En production, cette voie n'existe pas — le login échoue normalement.
+                if (_environment.IsDevelopment()
+                    && request.Email == "admin@securebank.com"
+                    && request.Password == "demo123")
                 {
                     user = await SeedDemoAdmin();
                 }
@@ -121,7 +126,7 @@ namespace SecureBank.Api.Controllers
             var admin = new User
             {
                 Email = "admin@securebank.com",
-                PasswordHash = "demo123",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("demo123"),
                 FirstName = "Admin",
                 LastName = "SecureBank",
                 Role = "ADMIN",
@@ -179,7 +184,13 @@ namespace SecureBank.Api.Controllers
 
         private string GenerateJwtToken(string userId, string role)
         {
-            var key = _configuration["Jwt:Key"] ?? "SecureBank_Dev_SecretKey_1234567890ABC";
+            // Aucun fallback en dur : si la clé JWT n'est pas configurée
+            // (variable d'environnement / secret Kubernetes manquant),
+            // on échoue explicitement plutôt que de signer avec une clé connue publiquement.
+            var key = _configuration["Jwt:Key"]
+                ?? throw new InvalidOperationException(
+                    "JWT signing key is not configured. Set 'Jwt:Key' via configuration or the 'Jwt__Key' environment variable.");
+
             var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key));
             var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 

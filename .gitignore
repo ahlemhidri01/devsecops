@@ -45,3 +45,5 @@ temp/
 # .NET Backend
 backend/bin/
 backend/obj/
+**/bin/
+**/obj/

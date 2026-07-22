@@ -18,18 +18,27 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // CORS — allow Angular dev server + production
 builder.Services.AddCors(options =>
 {
-    options.AddDefaultPolicy(policy =>
+    // Policy nommée explicitement, utilisée en production.
+    // (AddDefaultPolicy() enregistre sous un nom interne spécial, pas la chaîne "default" —
+    //  UseCors("default") ne pouvait donc jamais la trouver et échouait silencieusement.)
+    options.AddPolicy("Production", policy =>
         policy.WithOrigins("http://localhost:4200", "http://localhost:80", "http://localhost")
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials());
-    // Fallback for Docker networking
+
+    // Permissif, réservé au développement local uniquement.
     options.AddPolicy("AllowAll", policy =>
         policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
 });
 
 // JWT Authentication
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "SecureBank_Dev_SecretKey_1234567890ABC";
+// Aucun fallback en dur : si la clé n'est pas configurée, l'application refuse de démarrer
+// plutôt que de signer/valider des tokens avec une clé connue publiquement dans le code source.
+var jwtKey = builder.Configuration["Jwt:Key"]
+    ?? throw new InvalidOperationException(
+        "JWT signing key is not configured. Set 'Jwt:Key' via configuration or the 'Jwt__Key' environment variable.");
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -56,12 +65,12 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// Apply CORS before auth
-app.UseCors(app.Environment.IsDevelopment() ? "AllowAll" : "default");
+// Apply CORS before auth — policy nommée explicitement dans les deux cas,
+// pour ne plus dépendre d'une policy "default" qui n'existait pas réellement.
+app.UseCors(app.Environment.IsDevelopment() ? "AllowAll" : "Production");
 
 app.UseAuthentication();
 app.UseAuthorization();
-
 app.MapControllers();
 
 // Health check
