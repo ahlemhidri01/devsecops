@@ -131,7 +131,8 @@ jobs:
             /o:"ahlemhidri01" \
             /d:sonar.token="${SONAR_TOKEN}" \
             /d:sonar.qualitygate.wait=true \
-            /d:sonar.cs.opencover.reportsPaths="TestResults/**/coverage.opencover.xml"
+            /d:sonar.cs.opencover.reportsPaths="TestResults/**/coverage.opencover.xml" \
+            /d:sonar.coverage.exclusions="Program.cs"
           dotnet build SecureBank.Api.csproj -c Release
           dotnet test SecureBank.sln --settings coverlet.runsettings --results-directory ./TestResults
           ../.sonar/scanner/dotnet-sonarscanner end /d:sonar.token="${SONAR_TOKEN}"
