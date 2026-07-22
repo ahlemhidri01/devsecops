@@ -1,0 +1,21 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: securebank-api-role
+  namespace: securebank-prod
+rules: []
+  # Aucune permission accordée : l'application ne communique pas
+  # avec l'API Kubernetes (principe du moindre privilège).
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: securebank-api-rolebinding
+  namespace: securebank-prod
+subjects:
+  - kind: ServiceAccount
+    name: securebank-api-sa
+roleRef:
+  kind: Role
+  name: securebank-api-role
+  apiGroup: rbac.authorization.k8s.io

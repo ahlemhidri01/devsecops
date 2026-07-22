@@ -1,8 +1,11 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+namespace: securebank-prod
 resources:
   - ../../base
-  - networkpolicy.yaml
+  - ../../namespaces
+  - ../../rbac
+  - ../../network-policies
   - ingress.yaml
   - hpa.yaml
 namePrefix: prod-
