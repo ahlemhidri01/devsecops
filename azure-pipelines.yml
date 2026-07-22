@@ -48,21 +48,21 @@ stages:
         pool:
           vmImage: 'ubuntu-latest'
         steps:
+          - task: UseDotNet@2
+            inputs:
+              packageType: 'sdk'
+              version: '9.0.x'
           - task: SonarQubePrepare@5
             inputs:
               SonarQube: 'SonarQubeServer'
-              scannerMode: 'CLI'
-              configMode: 'manual'
-              cliProjectKey: 'SecureBank_API'
-              cliProjectName: 'SecureBank API'
-              cliSources: 'src'
-          - task: Npm@1
-            inputs:
-              command: 'install'
-          - task: Npm@1
-            inputs:
-              command: 'custom'
-              customCommand: 'run test -- --coverage'
+              scannerMode: 'dotnet'
+              projectKey: 'SecureBank_API'
+              projectName: 'SecureBank API'
+          - script: |
+              cd backend
+              dotnet restore
+              dotnet test --collect:"XPlat Code Coverage" --results-directory ./TestResults
+            displayName: 'Restore and Run xUnit Tests with Coverage'
           - task: SonarQubeAnalyze@5
           - task: SonarQubePublish@5
             inputs:
@@ -85,11 +85,12 @@ stages:
             inputs:
               command: 'build'
               repository: '$(imageRepository)'
-              dockerfile: 'Dockerfile'
+              dockerfile: 'backend/Dockerfile'
+              buildContext: 'backend'
               tags: |
                 $(tag)
                 latest
-              
+
           - script: |
               sudo apt-get install wget apt-transport-https gnupg lsb-release
               wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
