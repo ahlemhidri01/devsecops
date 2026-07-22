@@ -12,4 +12,4 @@ namePrefix: prod-
 images:
   - name: securebank/api
     newName: ghcr.io/ahlemhidri01/securebank-api
-    newTag: "8785820"
+    newTag: "e88bd24"
