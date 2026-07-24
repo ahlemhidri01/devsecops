@@ -91,3 +91,4 @@ Run security scanners locally:
 make scan-secrets
 make scan-image
 ```
+test
